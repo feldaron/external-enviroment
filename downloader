@@ -1,0 +1,29 @@
+name: Cloud Video Downloader
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'Video URL to download'
+        required: true
+        default: 'https://www.youtube.com/watch?v=-D_5jpuBqZ4'
+jobs:
+  download-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Tools
+        run: |
+          pip install -U yt-dlp
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Download Video
+        run: |
+          yt-dlp -f "best[ext=mp4]/best" -o "downloaded_video.mp4" "${{ github.event.inputs.video_url }}"
+      - name: Save Video as Downloadable Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-file
+          path: downloaded_video.mp4
+          retention-days: 1
