@@ -1,0 +1,67 @@
+name: Cloud Video Downloader
+# Only runs when you manually click "Run workflow"
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'YouTube Video URL to download'
+        required: true
+        default: 'https://www.youtube.com/watch?v=-D_5jpuBqZ4'
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Dependencies
+        run: |
+          pip install -U yt-dlp
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Download Video
+        run: |
+          python3 -c "
+          import os, json, urllib.request, sys
+          url = '${{ github.event.inputs.video_url }}'
+          video_id = url.split('v=')[-1].split('&')[0] if 'v=' in url else url.split('/')[-1]
+          output_name = 'video.mp4'
+          print(f'Starting cloud download for video ID: {video_id}')
+          # Attempt 1: yt-dlp
+          res = os.system(f'yt-dlp --extractor-args \"youtube:player_client=android\" -f \"best[ext=mp4]/best\" -o \"{output_name}\" \"{url}\"')
+          # Attempt 2: Global mirror cluster fallback if runner IP is challenged
+          if res != 0 or not os.path.exists(output_name) or os.path.getsize(output_name) == 0:
+              print('Runner flagged: switching to global mirror gateway...')
+              mirrors = [
+                  f'https://inv.tux.pizza/api/v1/videos/{video_id}',
+                  f'https://invidious.nerdvpn.de/api/v1/videos/{video_id}',
+                  f'https://invidious.projectsegfau.lt/api/v1/videos/{video_id}',
+                  f'https://iv.ggtyler.dev/api/v1/videos/{video_id}',
+                  f'https://pipedapi.kavin.rocks/streams/{video_id}'
+              ]
+              headers = {'User-Agent': 'Mozilla/5.0'}
+              for m in mirrors:
+                  try:
+                      req = urllib.request.Request(m, headers=headers)
+                      with urllib.request.urlopen(req, timeout=8) as resp:
+                          data = json.loads(resp.read().decode())
+                          streams = data.get('formatStreams', []) or data.get('videoStreams', [])
+                          if streams:
+                              stream_url = streams[-1].get('url')
+                              print(f'Downloading stream from mirror: {m}...')
+                              urllib.request.urlretrieve(stream_url, output_name)
+                              break
+                  except Exception:
+                      continue
+          if os.path.exists(output_name) and os.path.getsize(output_name) > 0:
+              print(f'SUCCESS! File size: {os.path.getsize(output_name) / (1024*1024):.2f} MB')
+          else:
+              print('Download failed.')
+              sys.exit(1)
+          "
+      - name: Save Video to GitHub Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: downloaded-video
+          path: video.mp4
+          retention-days: 1
